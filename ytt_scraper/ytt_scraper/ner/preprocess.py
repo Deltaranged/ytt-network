@@ -3,7 +3,7 @@ Submodule for cleaning up description data for the NER model.
 """
 
 import re
-from typing import List
+from typing import List, Dict
 
 from unidecode import unidecode
 
@@ -23,6 +23,12 @@ def clean_text(text: str):
     unidecoded_text = unidecode(text)
     subbed_text = re.sub(NONWORD_REGEX, ' ', unidecoded_text)
     return custom_tokenizer(subbed_text, return_list=False)
+
+
+def clean_video(v: Dict):
+    v['cleaned_title'] = clean_text(v['title'])
+    v['cleaned_description'] = clean_text(v['description'])
+    return v
 
 
 def clean_videos(videos: List):

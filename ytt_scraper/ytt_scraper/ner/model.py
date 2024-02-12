@@ -55,5 +55,5 @@ class TransitionBasedParserModel(NERModel):
         output = {}
         for (_label, _text) in entity_list:
             if _label == entity:
-                output[_text] = _text
+                output[_text[1:]] = _text
         return output

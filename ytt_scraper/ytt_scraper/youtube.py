@@ -28,7 +28,7 @@ def query_playlist_videos(playlist_id: str, max_results: int = 30) -> Dict[str, 
     )
     response = request.execute()
 
-    if not response['items']:
+    if ('items' not in response) or (not response['items']):
         raise ConnectionError
 
     return response
@@ -48,7 +48,7 @@ def query_videos(video_ids: List[str]) -> Dict[str, Any]:
     )
     response = request.execute()
 
-    if not response['items']:
+    if ('items' not in response) or (not response['items']):
         raise ConnectionError
 
     return response
@@ -68,7 +68,7 @@ def query_channel_details(channel_handle: str) -> Dict[str, Any]:
     )
     response = request.execute()
 
-    if not response['items']:
+    if ('items' not in response) or (not response['items']):
         raise ConnectionError
 
     return response
@@ -90,7 +90,7 @@ def query_channel_videos(channel_id: str, max_results: int = 30):
     )
     response = request.execute()
 
-    if not response['items']:
+    if ('items' not in response) or (not response['items']):
         raise ConnectionError
 
     return response
