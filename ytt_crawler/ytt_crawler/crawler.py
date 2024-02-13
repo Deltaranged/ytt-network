@@ -18,16 +18,16 @@ from ytt_scraper import handler as ytt
 from ytt_scraper import ner
 
 
-async def _BFSCrawler__async__get_channel_details(channel_handle: str):
+async def _async_get_channel_details(channel_handle: str):
     return ytt.get_channel_details(channel_handle)
 
-async def __async__get_video_from_video_id(video_id: str):
+async def _async_get_video_from_video_id(video_id: str):
     return ytt.get_video_from_video_id(video_id)
 
-async def _BFSCrawler__async__get_videos_from_channel_id(video_id: str):
+async def _async_get_videos_from_channel_id(video_id: str):
     return ytt.get_videos_from_channel_id(video_id)
 
-async def __async__get_videos_from_playlist_id(video_id: str):
+async def _async_get_videos_from_playlist_id(video_id: str):
     return ytt.get_videos_from_playlist_id(video_id)
 
 
@@ -49,32 +49,32 @@ class BFSCrawler():
 
     async def __async__run(self):
         await asyncio.gather(
-            self.__async__seed_queue(),
-            self.__async__crawl_channel_for_videos(),
-            self.__async__crawl_video_for_vocalists()
+            self._async_seed_queue(),
+            self._async_crawl_channel_for_videos(),
+            self._async_crawl_video_for_vocalists()
         )
 
     # Publishing
 
-    async def __async__enqueue_video(self, video: Dict):
+    async def _async_enqueue_video(self, video: Dict):
         print(f"-> Enqueueing {video['title']}...")
         await self._queue.publish('source/videos', video)
 
-    async def __async__enqueue_channel(self, channel_handle):
+    async def _async_enqueue_channel(self, channel_handle):
         print(f"-> Enqueueing {channel_handle}...")
-        payload = await __async__get_channel_details(channel_handle)
+        payload = await _async_get_channel_details(channel_handle)
         if not payload:
             print(f"{channel_handle} yielded no results, not enqueueing")
             return
         await self._queue.publish('source/channels', payload)
 
-    async def __async__seed_queue(self):
+    async def _async_seed_queue(self):
         await asyncio.sleep(1)
-        await self.__async__enqueue_channel(self._start_channel)
+        await self._async_enqueue_channel(self._start_channel)
 
     # Processing
 
-    def __extract_vocalists_from_video(self, video: Dict):
+    def _extract_vocalists_from_video(self, video: Dict):
         entities = self._ner_model.extract_entities(
             video['cleaned_title'] + ' '
             + video['cleaned_description']
@@ -84,32 +84,32 @@ class BFSCrawler():
 
     # Subscribing / Crawling
 
-    async def __async__crawl_channel_for_videos(self):
+    async def _async_crawl_channel_for_videos(self):
         channels = self._queue.subscribe('source/channels')
         async for channel in channels:
             print(f"Received channel {channel['handle']} from queue, getting channel videos...")
             await asyncio.sleep(21)
-            videos = await __async__get_videos_from_channel_id(channel['id'])
+            videos = await _async_get_videos_from_channel_id(channel['id'])
             clean_videos = ner.preprocess.clean_videos(videos)
             filtered_videos = ner.preprocess.filter_videos(clean_videos)
             print(f"Obtained {len(videos)}->{len(filtered_videos)} videos from {channel['handle']}, enqueueing...")
             for future in asyncio.as_completed(map(
-                self.__async__enqueue_video,
+                self._async_enqueue_video,
                 filtered_videos
             )):
                 await future
 
 
-    async def __async__crawl_video_for_vocalists(self):
+    async def _async_crawl_video_for_vocalists(self):
         videos = self._queue.subscribe('source/videos')
         async for video in videos:
             print(f"Received video {video['title']} from queue, extracting vocalists...")
             await asyncio.sleep(5)
-            vocalists = self.__extract_vocalists_from_video(video)
+            vocalists = self._extract_vocalists_from_video(video)
             print(f"{len(vocalists)} vocalist/s detected, enqueueing...")
             for channel_handle in vocalists.keys():
                 await asyncio.sleep(5)
-                await self.__async__enqueue_channel(channel_handle)
+                await self._async_enqueue_channel(channel_handle)
 
 
 def main():
