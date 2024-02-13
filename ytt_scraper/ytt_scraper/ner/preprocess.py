@@ -7,6 +7,8 @@ from typing import List, Dict
 
 from unidecode import unidecode
 
+from ytt_scraper.schema import VideoDetails
+
 NONWORD_REGEX = re.compile(r"[^\w+:/\\.#\=\-\?\’'\<\>@\n\u3040-\u309F\u30A0-\u30FF\u4300-\u9faf]")
 COVER_REGEX = re.compile(r"cover|tsutemita|utattemita|utaite", re.IGNORECASE)
 
@@ -25,30 +27,18 @@ def clean_text(text: str):
     return custom_tokenizer(subbed_text, return_list=False)
 
 
-def clean_video(v: Dict):
-    v['cleaned_title'] = clean_text(v['title'])
-    v['cleaned_description'] = clean_text(v['description'])
-    return v
+def clean_video(video: VideoDetails) -> VideoDetails:
+    text = video.title + ' ' + video.description
+    video.cleaned_text = clean_text(text)
+    return video
 
 
-def clean_videos(videos: List):
-    output = []
-    for v in videos:
-        v['cleaned_title'] = clean_text(v['title'])
-        v['cleaned_description'] = clean_text(v['description'])
-        output.append(v)
-    return output
-
-
-def filter_videos(videos: List) -> List:
+def filter_videos(videos: List[VideoDetails]) -> List[VideoDetails]:
     """
     Filters out videos which do not have certain keywords in the title or
     description
     """
     return [
         v for v in videos
-        if (
-            (COVER_REGEX.search(v['cleaned_title']))
-            or (COVER_REGEX.search(v['cleaned_description']))
-        )
+        if COVER_REGEX.search(v.cleaned_text)
     ]

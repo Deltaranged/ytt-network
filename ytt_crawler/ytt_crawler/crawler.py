@@ -16,7 +16,13 @@ load_dotenv()
 from ytt_crawler.pubsub import MosquittoQueue
 from ytt_scraper import handler as ytt
 from ytt_scraper import ner
+from ytt_scraper.schema import ChannelDetails, VideoDetails
 
+
+TOPIC_DESERIALIZER = {
+    'source/channels': ChannelDetails.model_validate_json,
+    'source/videos': VideoDetails.model_validate_json,
+}
 
 async def _async_get_channel_details(channel_handle: str):
     return ytt.get_channel_details(channel_handle)
@@ -37,7 +43,7 @@ class BFSCrawler():
                  queue_host: str,
                  queue_port: int = 1883):
         self._start_channel = start_channel
-        self._queue = MosquittoQueue(queue_host, queue_port)
+        self._queue = MosquittoQueue(queue_host, queue_port, TOPIC_DESERIALIZER)
         self._ner_model = ner.model.TransitionBasedParserModel(
             classes=["ORIGINAL_LINK", "ORIGINAL_TITLE", "VOCALIST_LINK", "VOCALIST_NAME", "VOCALIST_REF"]
         )
@@ -56,11 +62,11 @@ class BFSCrawler():
 
     # Publishing
 
-    async def _async_enqueue_video(self, video: Dict):
-        print(f"-> Enqueueing {video['title']}...")
+    async def _async_enqueue_video(self, video: VideoDetails):
+        print(f"-> Enqueueing {video.title}...")
         await self._queue.publish('source/videos', video)
 
-    async def _async_enqueue_channel(self, channel_handle):
+    async def _async_enqueue_channel(self, channel_handle: str):
         print(f"-> Enqueueing {channel_handle}...")
         payload = await _async_get_channel_details(channel_handle)
         if not payload:
@@ -74,11 +80,8 @@ class BFSCrawler():
 
     # Processing
 
-    def _extract_vocalists_from_video(self, video: Dict):
-        entities = self._ner_model.extract_entities(
-            video['cleaned_title'] + ' '
-            + video['cleaned_description']
-        )
+    def _extract_vocalists_from_video(self, video: VideoDetails):
+        entities = self._ner_model.extract_entities(video.cleaned_text)
         vocalists = self._ner_model.get_entities(entities, 'VOCALIST_REF')
         return vocalists
 
@@ -87,12 +90,12 @@ class BFSCrawler():
     async def _async_crawl_channel_for_videos(self):
         channels = self._queue.subscribe('source/channels')
         async for channel in channels:
-            print(f"Received channel {channel['handle']} from queue, getting channel videos...")
+            print(f"Received channel {channel.handle} from queue, getting channel videos...")
             await asyncio.sleep(21)
-            videos = await _async_get_videos_from_channel_id(channel['id'])
-            clean_videos = ner.preprocess.clean_videos(videos)
+            videos = await _async_get_videos_from_channel_id(channel.channel_id)
+            clean_videos = [ner.preprocess.clean_video(v) for v in videos]
             filtered_videos = ner.preprocess.filter_videos(clean_videos)
-            print(f"Obtained {len(videos)}->{len(filtered_videos)} videos from {channel['handle']}, enqueueing...")
+            print(f"Obtained {len(videos)}->{len(filtered_videos)} videos from {channel.handle}, enqueueing...")
             for future in asyncio.as_completed(map(
                 self._async_enqueue_video,
                 filtered_videos
@@ -103,7 +106,7 @@ class BFSCrawler():
     async def _async_crawl_video_for_vocalists(self):
         videos = self._queue.subscribe('source/videos')
         async for video in videos:
-            print(f"Received video {video['title']} from queue, extracting vocalists...")
+            print(f"Received video {video.title} from queue, extracting vocalists...")
             await asyncio.sleep(5)
             vocalists = self._extract_vocalists_from_video(video)
             print(f"{len(vocalists)} vocalist/s detected, enqueueing...")
