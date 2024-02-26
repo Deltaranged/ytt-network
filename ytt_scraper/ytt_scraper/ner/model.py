@@ -5,6 +5,7 @@ between traditional parser models and possibly transformer-based models.
 Model paths will be stored as configuration variables.
 """
 
+import re
 from abc import ABC, abstractmethod
 from typing import Iterable, List, Tuple, Dict, Any
 
@@ -56,4 +57,32 @@ class TransitionBasedParserModel(NERModel):
         for (_label, _text) in entity_list:
             if _label == entity:
                 output[_text[1:]] = _text
+        return output
+
+
+class RegexBasedParserModel(NERModel):
+    """
+    Baseline model only for extracting Youtube links in descriptions, regardless
+    of role
+    """
+    def __init__(self, classes: Iterable):
+        super().__init__(classes)
+
+        self.expr1 = re.compile(r"youtube\.com/(@|c\/|user\/|channel\/)([\w|\-]+)\/?")
+        self.expr2 = re.compile(r"\s(@)([\w|\-]+)")
+
+    def extract_entities(self, text: str) -> List[Tuple]:
+        matches1 = re.findall(self.expr1, text)
+        matches2 = re.findall(self.expr2, text)
+        matches = set(matches1 + matches2)
+        return [
+            ('VOCALIST_REF', ref)
+            for (_, ref) in matches
+        ]
+
+    def get_entities(self, entity_list: List[Tuple], entity: str) -> Dict[str, Any]:
+        output = {}
+        for (_label, _text) in entity_list:
+            if _label == entity:
+                output[_text] = _text
         return output
