@@ -7,7 +7,7 @@ from typing import List, Dict
 
 from unidecode import unidecode
 
-from ytt_scraper.schema import VideoDetails
+from ytt_database.schema import VideoDetails
 
 NONWORD_REGEX = re.compile(r"[^\w+:/\\.#\=\-\?\’'\<\>@\n\u3040-\u309F\u30A0-\u30FF\u4300-\u9faf]")
 COVER_REGEX = re.compile(r"cover|tsutemita|utattemita|utaite", re.IGNORECASE)

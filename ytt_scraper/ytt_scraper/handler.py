@@ -5,9 +5,10 @@ These are the methods exposed as the API for other code.
 
 from typing import List, Dict, Any
 from requests.exceptions import ConnectionError
+import cachetools.func
 
 from ytt_scraper import youtube as yt
-from ytt_scraper.schema import ChannelDetails, VideoDetails
+from ytt_database.schema import ChannelDetails, VideoDetails
 
 
 # ===== Internal functions ===== #
@@ -61,6 +62,7 @@ def _get_videos(video_ids: List[str]) -> List[VideoDetails]:
 
 # ===== External functions ===== #
 
+@cachetools.func.ttl_cache(maxsize=256, ttl=20 * 60)
 def get_channel_details(channel_handle: str) -> ChannelDetails:
     try:
         details = yt.query_channel_details(channel_handle)

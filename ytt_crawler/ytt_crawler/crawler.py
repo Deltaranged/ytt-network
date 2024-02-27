@@ -11,13 +11,16 @@ from abc import ABC, abstractmethod
 from typing import Iterable, List, Tuple, Dict, Any
 import json
 import asyncio
+import cachetools
+
 from dotenv import load_dotenv
 load_dotenv()
 
 from ytt_crawler.pubsub import MosquittoQueue
 from ytt_scraper import handler as ytt
 from ytt_scraper import ner
-from ytt_scraper.schema import ChannelDetails, VideoDetails
+from ytt_database.schema import ChannelDetails, VideoDetails
+from ytt_database.handler import YttDatabase
 
 
 TOPIC_DESERIALIZER = {
@@ -54,8 +57,16 @@ class BFSCrawler():
         self._wait_times['channel_id'] = int(os.environ.get('CRAWLER_CHANNEL_ID_WAIT_TIME', 21))
         self._wait_times['video_id'] = int(os.environ.get('CRAWLER_VIDEO_ID_WAIT_TIME', 5))
 
+        # 128 entries, 10 minutes
+        self._channel_ttl_cache = cachetools.TTLCache(maxsize=128, ttl=10 * 60)
+
+        self.setup_db()
+
     def run(self):
         asyncio.run(self.__async__run())
+
+    def setup_db(self):
+        self._db = YttDatabase()
         
     # Async
 
@@ -73,12 +84,16 @@ class BFSCrawler():
         await self._queue.publish('source/videos', video)
 
     async def _async_enqueue_channel(self, channel_handle: str):
+        if ((channel_handle in self._channel_ttl_cache)
+            or (self._db.get_channel_by_handle(channel_handle) is None)):
+            print(f"{channel_handle} already enqueued, skipping")
         print(f"-> Enqueueing {channel_handle}...")
         payload = await _async_get_channel_details(channel_handle)
         if not payload:
             print(f"{channel_handle} yielded no results, not enqueueing")
             return
         await self._queue.publish('source/channels', payload)
+        self._channel_ttl_cache[channel_handle] = 1
 
     async def _async_seed_queue(self):
         await asyncio.sleep(self._wait_times['seed'])
@@ -98,15 +113,28 @@ class BFSCrawler():
         channels = self._queue.subscribe('source/channels')
         async for channel in channels:
             print(f"Received channel {channel.handle} from queue, getting channel videos...")
+            await self._async_insert_channel_to_db(channel)
+
             videos = await _async_get_videos_from_channel_id(channel.channel_id)
-            clean_videos = [ner.preprocess.clean_video(v) for v in videos]
-            filtered_videos = ner.preprocess.filter_videos(clean_videos)
+
+            clean_videos: List[VideoDetails] = \
+                [ner.preprocess.clean_video(v) for v in videos]
+            filtered_videos: List[VideoDetails] = \
+                ner.preprocess.filter_videos(clean_videos)
             print(f"Obtained {len(videos)}->{len(filtered_videos)} videos from {channel.handle}, enqueueing...")
+
+            for future in asyncio.as_completed(map(
+                self._async_insert_video_to_db,
+                filtered_videos
+            )):
+                await future
+
             for future in asyncio.as_completed(map(
                 self._async_enqueue_video,
                 filtered_videos
             )):
                 await future
+
             await asyncio.sleep(self._wait_times['channel_id'])
 
 
@@ -116,9 +144,44 @@ class BFSCrawler():
             print(f"Received video {video.title} from queue, extracting vocalists...")
             vocalists = self._extract_vocalists_from_video(video)
             print(f"{len(vocalists)} vocalist/s detected, enqueueing...")
-            for channel_handle in vocalists.keys():
-                await self._async_enqueue_channel(channel_handle)
+
+            for future in asyncio.as_completed(map(
+                self._async_enqueue_channel,
+                vocalists.keys()
+            )):
+                await future
+
+            vocalist_details = [
+                await future
+                for future in asyncio.as_completed(map(
+                    _async_get_channel_details,
+                    vocalists.keys()
+                ))
+            ]
+
+            vocalist_edges = [
+                (video.video_id, vd.channel_id)
+                for vd in vocalist_details
+                if vd
+            ]
+            for future in asyncio.as_completed(map(
+                self._async_insert_vocalist_to_db,
+                vocalist_edges
+            )):
+                await future
+
             await asyncio.sleep(self._wait_times['video_id'])
+
+    # Inserting to DB (will be replaced perhaps)
+
+    async def _async_insert_video_to_db(self, video: VideoDetails):
+        self._db.insert_video(video)
+
+    async def _async_insert_channel_to_db(self, channel: ChannelDetails):
+        self._db.insert_channel(channel)
+
+    async def _async_insert_vocalist_to_db(self, ids: Tuple):
+        self._db.insert_vocalist_edge(*ids)
 
 
 def main():
